@@ -1,0 +1,274 @@
+name: CI Quality Pipeline
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 1: Lint & Static Analysis
+  # ─────────────────────────────────────────────────────────────────────────────
+  static-analysis:
+    name: "Stage 1 — Static Analysis"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+          tools: cs2pr
+
+      - name: Get Composer Cache Directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-8.3-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Laravel Pint — Code Style Check
+        run: ./vendor/bin/pint --test
+        continue-on-error: true
+
+      - name: PHPStan — Static Analysis
+        run: ./vendor/bin/phpstan analyse --no-progress --error-format=checkstyle | cs2pr
+        continue-on-error: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 2: Unit Tests with Coverage
+  # ─────────────────────────────────────────────────────────────────────────────
+  unit-tests:
+    name: "Stage 2 — Unit Tests (PHP ${{ matrix.php-version }})"
+    needs: static-analysis
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.2", "8.3", "8.4"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "${{ matrix.php-version }}"
+          coverage: xdebug
+
+      - name: Get Composer Cache Directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-${{ matrix.php-version }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Copy .env
+        run: |
+          cp .env.testing.example .env
+          cp .env.testing.example .env.testing
+
+      - name: Install dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Generate app key
+        run: php artisan key:generate
+
+      - name: Run Unit Tests with Coverage
+        run: |
+          php artisan test --testsuite=Unit \
+            --coverage-clover=coverage-unit.xml \
+            --coverage-text
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
+
+      - name: Upload Coverage Report
+        if: matrix.php-version == '8.3'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: coverage-unit.xml
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 3: Integration / Feature Tests (MySQL)
+  # ─────────────────────────────────────────────────────────────────────────────
+  integration-tests:
+    name: "Stage 3 — Integration Tests"
+    needs: unit-tests
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+          MYSQL_DATABASE: snipeit_test
+        ports:
+          - 33306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+
+      - name: Get Composer Cache Directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-8.3-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Copy .env
+        run: |
+          cp .env.testing.example .env
+          cp .env.testing.example .env.testing
+
+      - name: Install dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Setup Laravel
+        env:
+          DB_CONNECTION: mysql
+          DB_DATABASE: snipeit_test
+          DB_PORT: ${{ job.services.mysql.ports[3306] }}
+          DB_USERNAME: root
+        run: |
+          php artisan key:generate
+          php artisan migrate --force
+          php artisan passport:install --no-interaction
+          chmod -R 777 storage bootstrap/cache
+
+      - name: Run Feature Tests
+        env:
+          DB_CONNECTION: mysql
+          DB_DATABASE: snipeit_test
+          DB_PORT: ${{ job.services.mysql.ports[3306] }}
+          DB_USERNAME: root
+          LOG_CHANNEL: single
+          LOG_LEVEL: debug
+        run: php artisan test --testsuite=Feature
+
+      - name: Upload Laravel logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laravel-logs-integration
+          path: storage/logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 4: Security Scan
+  # ─────────────────────────────────────────────────────────────────────────────
+  security-scan:
+    name: "Stage 4 — Security Scan"
+    needs: static-analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Composer Audit (known vulnerabilities)
+        run: composer audit
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 5: Docker Build & Health Check (develop branch only)
+  # ─────────────────────────────────────────────────────────────────────────────
+  deploy-test:
+    name: "Stage 5 — Docker Build & Health Check"
+    needs: [integration-tests, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t snipeit:ci-${{ github.sha }} .
+
+      - name: Start test environment
+        run: |
+          cp .env.testing.example .env
+          docker compose up -d
+        env:
+          APP_VERSION: ci-${{ github.sha }}
+
+      - name: Wait for app to be ready
+        run: |
+          echo "Waiting for app to start..."
+          for i in $(seq 1 24); do
+            if curl -sf http://localhost:${APP_PORT:-8000}/health; then
+              echo "App is up!"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "App did not become healthy in time" && exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 6: Performance Test with K6 (develop branch only)
+  # ─────────────────────────────────────────────────────────────────────────────
+  performance-test:
+    name: "Stage 6 — Performance Test (K6)"
+    needs: deploy-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup K6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Start test environment
+        run: |
+          cp .env.testing.example .env
+          docker compose up -d
+          sleep 30
+
+      - name: Run K6 load test
+        run: k6 run tests/performance/k6-load-test.js
+        env:
+          BASE_URL: http://localhost:${APP_PORT:-8000}
+        continue-on-error: true
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

@@ -716,6 +716,16 @@ Route::withoutMiddleware(['web'])->get(
     [HealthController::class, 'get']
 )->name('health');
 
+/**
+ * Prometheus metrics endpoint — Course MGL842 (Observability)
+ * Access is restricted via a bearer token check inside MetricsController.
+ * Set METRICS_TOKEN in .env. Scrape target for Prometheus: http://app/metrics
+ */
+Route::withoutMiddleware(['web'])->get(
+    '/metrics',
+    \App\Http\Controllers\MetricsController::class
+)->name('metrics');
+
 Route::middleware(['auth'])->get(
     '/',
     [DashboardController::class, 'index']

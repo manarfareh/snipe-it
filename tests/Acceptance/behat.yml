@@ -1,0 +1,30 @@
+default:
+  suites:
+    api:
+      paths: [ "%paths.base%/features" ]
+      contexts:
+        - Tests\Acceptance\Context\ApiContext
+        - Tests\Acceptance\Context\AuthContext
+      filters:
+        tags: "~@wip"
+
+    ui:
+      paths: [ "%paths.base%/features/ui" ]
+      contexts:
+        - Tests\Acceptance\Context\UiContext
+      filters:
+        tags: "~@wip"
+
+  extensions:
+    Behat\MinkExtension:
+      base_url: "http://localhost:8000"
+      sessions:
+        default:
+          goutte: ~
+        javascript:
+          selenium2:
+            browser: chrome
+
+  formatters:
+    pretty:
+      verbose: true

@@ -56,6 +56,7 @@ class Kernel extends HttpKernel
         SecurityHeaders::class,
         PreventBackHistory::class,
         HandleCors::class,
+        \App\Http\Middleware\TraceRequestMiddleware::class,
 
     ];
 

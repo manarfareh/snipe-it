@@ -9,6 +9,7 @@ use App\Providers\BreadcrumbsServiceProvider;
 use App\Providers\EventServiceProvider;
 use App\Providers\LivewireServiceProvider;
 use App\Providers\RouteServiceProvider;
+use App\Providers\OpenTelemetryServiceProvider;
 use App\Providers\SamlServiceProvider;
 use App\Providers\SettingsServiceProvider;
 use App\Providers\SnipeTranslationServiceProvider;
@@ -404,6 +405,7 @@ return [
         LivewireServiceProvider::class,
         SamlServiceProvider::class,
         BreadcrumbsServiceProvider::class,
+        OpenTelemetryServiceProvider::class,
 
     ],
 
