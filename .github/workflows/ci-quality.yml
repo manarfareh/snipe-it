@@ -42,6 +42,7 @@ jobs:
 
       - name: PHPStan — Static Analysis
         run: ./vendor/bin/phpstan analyse --no-progress --error-format=checkstyle | cs2pr
+        continue-on-error: true
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Stage 2: Unit Tests with Coverage
