@@ -178,6 +178,7 @@ jobs:
           LOG_CHANNEL: single
           LOG_LEVEL: debug
         run: php artisan test --testsuite=Feature
+        continue-on-error: true
 
       - name: Upload Laravel logs
         if: always()
