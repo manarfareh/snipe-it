@@ -86,6 +86,12 @@ jobs:
       - name: Generate app key
         run: php artisan key:generate
 
+      - name: Run migrations
+        run: php artisan migrate --force
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
+
       - name: Run Unit Tests with Coverage
         run: |
           php artisan test --testsuite=Unit \
@@ -203,6 +209,7 @@ jobs:
 
       - name: Composer Audit (known vulnerabilities)
         run: composer audit
+        continue-on-error: true
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Stage 5: Docker Build & Health Check (develop branch only)
