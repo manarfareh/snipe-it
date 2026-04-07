@@ -38,11 +38,9 @@ jobs:
 
       - name: Laravel Pint — Code Style Check
         run: ./vendor/bin/pint --test
-        continue-on-error: true
 
       - name: PHPStan — Static Analysis
         run: ./vendor/bin/phpstan analyse --no-progress --error-format=checkstyle | cs2pr
-        continue-on-error: true
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Stage 2: Unit Tests with Coverage
